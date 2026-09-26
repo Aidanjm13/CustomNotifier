@@ -1,11 +1,13 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from tkinter.colorchooser import askcolor
 import threading
-from filehandling import create_file, get_entries, get_next_id, add_entry, update_entry, delete_entry, update_settings, read_settings
+from filehandling import create_file, get_entries, get_next_id, add_entry, update_entry, delete_entry, update_settings, read_settings, get_app_data_dir, get_data_path, get_settings_path
 import random
 import math
 import time
+import os
+import zipfile
 
 # ── Background loop ───────────────────────────────────────────────────────────
 
@@ -68,7 +70,6 @@ class App(tk.Tk):
         #when selected switch to this color
         style.map("Treeview", background=[("selected", "#45475a")])
 
-
         #left side of application: the scroll view with notifications
         left = tk.Frame(self, bg="#1e1e2e") #frame color same as background to blend in
         left.pack(side="left", fill="both", expand=True, padx=(12, 6), pady=12)
@@ -88,7 +89,6 @@ class App(tk.Tk):
         btn_row.pack(fill="x", pady=(6, 0))
         self._btn(btn_row, "New", self._new_entry).pack(side="left", padx=(0, 4))
         self._btn(btn_row, "Delete", self._delete_entry, danger=True).pack(side="left")
-
 
         #right side notification edits, loop settings and controls
         right = tk.Frame(self, bg="#1e1e2e", width=240)
@@ -115,8 +115,8 @@ class App(tk.Tk):
         self.loop_vars = {}
         interval = currentSettings["interval"] if currentSettings and currentSettings["interval"] else "20"
         self._field(right,self.loop_vars,"interval","Interval between Notifications","int",interval)
-        range = currentSettings["range"] if currentSettings and currentSettings["range"] else "0"
-        self._field(right,self.loop_vars,"range","Random Range","int",range)
+        range_val = currentSettings["range"] if currentSettings and currentSettings["range"] else "0"
+        self._field(right,self.loop_vars,"range","Random Range","int",range_val)
 
         length = currentSettings["length"] if currentSettings and currentSettings["length"] else "3"
         self._field(right,self.loop_vars,"length","Display Time","int",length)
@@ -150,6 +150,14 @@ class App(tk.Tk):
         self.save_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
         self.default_btn = self._btn(ctrl, "Default", self._default_settings)
         self.default_btn.pack(side="left", fill="x", expand=True)
+
+        # Import / Export Settings
+        io_ctrl = tk.Frame(right, bg="#1e1e2e")
+        io_ctrl.pack(fill="x", pady=(0, 8))
+        self.import_btn = self._btn(io_ctrl, "Import", self._import_settings)
+        self.import_btn.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        self.export_btn = self._btn(io_ctrl, "Export", self._export_settings)
+        self.export_btn.pack(side="left", fill="x", expand=True)
 
         # Log
         tk.Label(right, text="Log", bg="#1e1e2e", fg="#cba6f7",
@@ -217,7 +225,7 @@ class App(tk.Tk):
                          bg=bg, fg=fg, activebackground=abg,
                          relief="flat", font=("Segoe UI", 9), padx=8, pady=4)
 
-    def change_color():
+    def change_color(self):
         colors = askcolor(title="Tkinter Color Chooser")
 
     #Functions for handling list features
@@ -272,7 +280,6 @@ class App(tk.Tk):
         delete_entry(self._selected_id)
         self._selected_id = None
         self._refresh_list()
-
 
     def _on_button_click(self, field):
         if field == "location":
@@ -396,6 +403,65 @@ class App(tk.Tk):
             "bottom-left": True, "bottom": True, "bottom-right": True,
         }
 
+    def _export_settings(self):
+        """Bundles the app data files into a zip file for the user."""
+        # Retrieve the dynamic paths from filehandling.py
+        settings_file = get_settings_path()
+        data_file = get_data_path()
+
+        if not os.path.exists(settings_file) and not os.path.exists(data_file):
+            messagebox.showerror("Export Error", "No app data found to export. Ensure you have saved settings or created an entry at least once.")
+            return
+
+        export_path = filedialog.asksaveasfilename(
+            title="Export Data",
+            defaultextension=".zip",
+            filetypes=[("Zip Archive", "*.zip")],
+            initialfile="NotificationSystem_Backup.zip"
+        )
+
+        if export_path:
+            try:
+                with zipfile.ZipFile(export_path, 'w') as zipf:
+                    # arcname ensures the files sit at the root of the zip, without full OS folder paths
+                    if os.path.exists(settings_file):
+                        zipf.write(settings_file, arcname=os.path.basename(settings_file))
+                    if os.path.exists(data_file):
+                        zipf.write(data_file, arcname=os.path.basename(data_file))
+                
+                self._log(f"Successfully exported to {os.path.basename(export_path)}")
+                messagebox.showinfo("Success", "Settings and notifications exported successfully!")
+            except Exception as e:
+                messagebox.showerror("Export Error", f"An error occurred: {e}")
+
+    def _import_settings(self):
+        """Takes a zip file from the user and extracts it to replace the current app data."""
+        import_path = filedialog.askopenfilename(
+            title="Import Data",
+            filetypes=[("Zip Archive", "*.zip")]
+        )
+
+        if import_path:
+            # Retrieve the target extraction directory from filehandling.py
+            target_dir = get_app_data_dir()
+
+            msg = "This will overwrite your current settings and notifications. Are you sure you want to continue?"
+            if not messagebox.askyesno("Confirm Import", msg):
+                return
+
+            try:
+                with zipfile.ZipFile(import_path, 'r') as zipf:
+                    # Extract files to the app data directory, overwriting the existing ones
+                    zipf.extractall(target_dir)
+                
+                self._log("Successfully imported app data.")
+                self._refresh_list()
+                
+                # Force the UI to reflect the newly imported settings file
+                messagebox.showinfo("Success", "Import successful! Please restart the application to fully apply the imported settings.")
+                
+            except Exception as e:
+                messagebox.showerror("Import Error", f"An error occurred during import: {e}")
 
     def show_entry_window(self, entry):
         """Runs on the main thread — safe to touch widgets here."""

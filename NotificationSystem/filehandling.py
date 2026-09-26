@@ -87,3 +87,4 @@ def read_settings():
 def update_settings(settingsDict):
     with open(get_settings_path(), "w") as f:
             json.dump(settingsDict, f)
+
